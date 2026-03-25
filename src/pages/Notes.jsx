@@ -9,8 +9,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  doc,
-  orderBy
+  doc
 } from 'firebase/firestore';
 import { Reorder } from 'framer-motion';
 import { Trash2, Plus } from 'lucide-react';
@@ -20,19 +19,36 @@ export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState({ title: '', content: '' });
   const reorderRunIdRef = useRef(0);
+  const [snapshotError, setSnapshotError] = useState(null);
 
   useEffect(() => {
     if (!user) return;
     
+    // Avoid requiring a Firestore composite index by not mixing `where` + `orderBy`.
+    // We'll sort by `order` locally after the snapshot.
     const q = query(
-      collection(db, "notes"), 
-      where("userId", "==", user.uid),
-      orderBy("order", "asc")
+      collection(db, "notes"),
+      where("userId", "==", user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const next = snapshot.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => {
+            const ao = typeof a?.order === "number" ? a.order : Number(a?.order);
+            const bo = typeof b?.order === "number" ? b.order : Number(b?.order);
+            return (Number.isFinite(ao) ? ao : 0) - (Number.isFinite(bo) ? bo : 0);
+          });
+        setNotes(next);
+        setSnapshotError(null);
+      },
+      (error) => {
+        console.error("Notes snapshot error:", error);
+        setSnapshotError(error);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
@@ -93,6 +109,28 @@ export default function Notes() {
 
   return (
     <div className="notes-page">
+      {snapshotError && (
+        <div
+          className="glass"
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            border: "1px solid rgba(244, 63, 94, 0.35)",
+            color: "#fecdd3",
+            fontSize: 13,
+          }}
+        >
+          Couldn’t load notes.
+          <div style={{ marginTop: 6, color: "#fda4af", fontSize: 12, opacity: 0.95 }}>
+            {snapshotError?.code ? `Code: ${snapshotError.code}` : null}
+            {snapshotError?.message ? ` ${snapshotError.message}` : null}
+          </div>
+          <div style={{ marginTop: 8, color: "rgba(254, 202, 202, 0.95)", fontSize: 12 }}>
+            Check: (1) you're signed in, (2) existing docs have `userId` and it matches your uid, (3) Firestore rules allow reads.
+          </div>
+        </div>
+      )}
+
       <div className="glass note-input-section">
         <form onSubmit={addNote} className="note-form">
           <input 
