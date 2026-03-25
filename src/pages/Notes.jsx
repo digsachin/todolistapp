@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -7,6 +7,7 @@ import {
   query,
   where,
   addDoc,
+  updateDoc,
   deleteDoc,
   doc,
   orderBy
@@ -18,6 +19,7 @@ export default function Notes() {
   const { user } = useAuth();
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState({ title: '', content: '' });
+  const reorderRunIdRef = useRef(0);
 
   useEffect(() => {
     if (!user) return;
@@ -39,11 +41,17 @@ export default function Notes() {
     e.preventDefault();
     if (!newNote.content.trim()) return;
 
+    // Avoid order collisions after deletes/reorders.
+    const maxOrder = notes.reduce((max, n) => {
+      const v = typeof n?.order === 'number' ? n.order : Number(n?.order);
+      return Number.isFinite(v) ? Math.max(max, v) : max;
+    }, -1);
+
     await addDoc(collection(db, "notes"), {
       userId: user.uid,
       title: newNote.title.trim() || 'Untitled',
       content: newNote.content.trim(),
-      order: notes.length,
+      order: maxOrder + 1,
       createdAt: new Date().toISOString(),
     });
 
@@ -52,6 +60,35 @@ export default function Notes() {
 
   const deleteNote = async (id) => {
     await deleteDoc(doc(db, "notes", id));
+  };
+
+  const handleReorder = (newNotes) => {
+    // Keep local `order` in sync so "Add Note" doesn't reuse stale order values
+    // before Firestore snapshot updates arrive.
+    const normalizedNotes = newNotes.map((note, index) => ({
+      ...note,
+      order: index,
+    }));
+
+    setNotes(normalizedNotes);
+
+    // Persist the order to Firestore so refresh/mobile stays consistent.
+    const runId = ++reorderRunIdRef.current;
+    void (async () => {
+      try {
+        await Promise.all(
+          normalizedNotes.map((note, index) =>
+            updateDoc(doc(db, "notes", note.id), { order: index })
+          )
+        );
+      } catch (err) {
+        // Firestore sync will rehydrate from the snapshot, but keep logs for debugging.
+        console.error("Failed to persist note order:", err);
+      } finally {
+        // No-op: runId is used to ignore stale writes if we extend this later.
+        if (reorderRunIdRef.current !== runId) return;
+      }
+    })();
   };
 
   return (
@@ -80,7 +117,7 @@ export default function Notes() {
         </form>
       </div>
 
-      <Reorder.Group axis="y" values={notes} onReorder={setNotes} className="notes-grid">
+      <Reorder.Group axis="y" values={notes} onReorder={handleReorder} className="notes-grid">
         {notes.map((note) => (
           <Reorder.Item 
             key={note.id} 

@@ -797,6 +797,48 @@ body {
   }
 }
 
+@media (max-width: 600px) {
+  body {
+    padding: 24px 12px 60px;
+  }
+
+  .notes-page {
+    gap: 20px;
+  }
+
+  .note-input-section {
+    padding: 12px;
+  }
+
+  .notes-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 12px 0;
+  }
+
+  .note-card {
+    min-height: 150px;
+    padding: 18px;
+  }
+
+  .note-card h3 {
+    font-size: 16px;
+  }
+
+  .note-title-input {
+    font-size: 16px;
+  }
+
+  /* Mobile doesn't have hover: show actions without requiring a hover. */
+  .note-footer {
+    opacity: 1;
+  }
+
+  .note-card:hover .note-footer {
+    opacity: 1;
+  }
+}
+
 /* ─── Loading Spinner ──────────────────── */
 .spinner {
   width: 40px;
